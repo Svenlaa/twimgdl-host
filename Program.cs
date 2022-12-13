@@ -1,23 +1,25 @@
 using System.Net;
+using System.Runtime.InteropServices;
 using TwitterSharp.Client;
 using TwitterSharp.Request.AdvancedSearch;
 using TwitterSharp.Request.Option;
 using twimgdl_host;
+using TwitterSharp.Response.RMedia;
 
-var builder = WebApplication.CreateBuilder(args);
-var app = builder.Build();
+var app = WebApplication.CreateBuilder(args).Build();
 
-const string mediaFormat = "jpg";
 WebClient webClient = new WebClient();
 TwitterClient twitterClient = new TwitterClient(Secrets.TwitterBearer);
 
-void DownloadFile(string mediaId) {
-    var dateTime = DateTime.Now;
-    webClient.DownloadFileAsync(new Uri($"https://pbs.twimg.com/media/{mediaId}.{mediaFormat}"),
-    $"D:\\temp\\{dateTime:hhmmss}.{mediaFormat}");
+
+void SaveFile(string fileName, DateTime createdAt)
+{
+    var filePath = $"{Directory.GetCurrentDirectory()}\\{fileName}";
+    webClient.DownloadFile(new Uri($"https://pbs.twimg.com/media/{fileName}"), filePath);
+    File.SetLastWriteTime(filePath, createdAt);
 }
 
-async Task<MyTweet?> GetMedia(string tweetId)
+async Task<MyTweet?> GetMedia(string tweetId, [Optional] int? position)
 {
     var tweet = await twitterClient.GetTweetAsync(tweetId, new TweetSearchOptions
     {
@@ -27,33 +29,53 @@ async Task<MyTweet?> GetMedia(string tweetId)
     if (tweet is null) return null;
     var media = tweet.Attachments.Media;
     var mediaFiles = new List<string>();
-    
-    foreach (var medium in media)
+
+    void AddFileToArray(Media medi)
     {
-        var currentUrl = medium.Url;
-        if (currentUrl is null) continue;
+        var currentUrl = medi.Url;
+        if (currentUrl is null) return;
         mediaFiles.Add(currentUrl.Split("/").Last());
     }
 
-    return mediaFiles.Count != 0 ? new MyTweet(DateTime.Now, mediaFiles) : null;
+    if (position.HasValue)
+    {
+        AddFileToArray(media[position.Value]);
+    }
+    else
+    {
+        foreach (var medium in media)
+        {
+            AddFileToArray(medium);
+        }
+    }
+    
+    return mediaFiles.Count != 0 ? new MyTweet(CreatedAt: tweet.CreatedAt ?? DateTime.UnixEpoch, mediaFiles) : null;
 }
-
-app.MapGet("/downloadFile/{mediaId}", (string mediaId) =>
-{
-    DownloadFile(mediaId);
-    return "Nice";
-});
 
 app.MapGet("/tweet/{tweetId}", async (string tweetId) =>
 {
-    var task = GetMedia(tweetId);
-    var res = await task;
+    var res = await GetMedia(tweetId);
     if (res is null) return "No Images Found.";
+
+    var amountDownloaded = 0;
+    foreach (string mediaFile in res.MediaFiles)
+    {
+        SaveFile(mediaFile, createdAt: res.CreatedAt);
+        amountDownloaded += 1;
+    }
     
-    Console.WriteLine(res.CreatedAt);
-    return "Success";
+    return $"{amountDownloaded} files downloaded.";
 });
 
+app.MapGet("/tweet/{tweetId}/{position}", async (string tweetId, int position) =>
+{
+    var res = await GetMedia(tweetId);
+    if (res is null || position > res.MediaFiles.Count) return "Image Not found";
+    
+    SaveFile(res.MediaFiles[position], createdAt: res.CreatedAt);
+    
+    return "Image downloaded.";
+});
 
 app.Run();
 
