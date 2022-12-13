@@ -7,4 +7,8 @@
         <RootNamespace>twimgdl_host</RootNamespace>
     </PropertyGroup>
 
+    <ItemGroup>
+      <PackageReference Include="TwitterSharp" Version="2.4.0" />
+    </ItemGroup>
+
 </Project>
